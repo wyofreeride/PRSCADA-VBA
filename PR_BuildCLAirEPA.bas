@@ -1,4 +1,3 @@
-Public Function PR_BuildClAirEPA(sReportDate As String, iRig As Integer, iEngine As Integer, Optional bBackground As Boolean = False) As Integer
 'Create an EPA and HSE log file from the ePod log files
 '  Create the blank file
 '  Generate the required Header and date time fields
@@ -33,10 +32,20 @@ Dim j As Integer
 Dim k As Integer
 Dim kStart As Integer
 
+Dim TotalStartTime As Double
+Dim TotalEndTime As Double
+Dim StartTime As Double
+Dim EndTime As Double
+
+Dim iePodRows As Integer
+Dim iePodColumns As Integer
+Dim ePodData As Variant
+
 Dim sTemp1 As String
 Dim sTemp2 As String
 Dim sTemp3 As String
 Dim sATemp() As String
+Dim sRecord() As String
 
 Dim sePodPumpOutput As String
 Dim sePodBoostPressure As String
@@ -49,6 +58,8 @@ Dim sStartDate As String
 ' Define the constants used for file system objects
 Const ForReading = 1
 Const ForAppending = 8
+
+TotalStartTime = Timer
 
 Set fs = CreateObject("Scripting.FileSystemObject")
 
@@ -83,8 +94,7 @@ On Error GoTo ErrorHandler
 If Not bBackground Then
    Load frmStatus
    frmStatus.Show
-   AddLog "Starting Clean Air EPA File Creation at " & Now()
-   AddLog ""
+   AddLog "Starting Clean Air EPA File Creation at " & Now(), sReportDate, "Rig " & Str(iRig), "Engine " & Str(iEngine), "", "", "", "", ""
 End If
 Print #iLog, "Starting Clean Air EPA File Creation at " & Now()
 Debug.Print "Starting Clean Air EPA File Creation at " & Now()
@@ -113,15 +123,8 @@ If FileExists(sFilePath & sFileName) Then
 End If
    
 
-
-
-'Open and Verify the file
-If Not bBackground Then AddLog "Building " & sFileName
-Print #iLog, "Building " & sFileName
-Debug.Print "Building " & sFileName
-
 'Open the Existing Report file
-If Not bBackground Then AddLog "Building " & sFileName
+If Not bBackground Then AddLog "Building " & sFileName, sReportDate, "Rig " & Str(iRig), "Engine " & Str(iEngine)
 Print #iLog, "Building " & sFileName
 Set Report = ExcelApp.Workbooks.Add
 With Report.Sheets(1)
@@ -181,7 +184,7 @@ With Report.Sheets(1)
    ExcelApp.DisplayAlerts = False
    Report.SaveAs sFilePath & sFileName, xlCSV
    ExcelApp.DisplayAlerts = True
-   If Not bBackground Then AddLog "File Saved to preserve corrections"
+   If Not bBackground Then AddLog "  File Saved to preserve corrections"
 
    '**********************************************************************
    'Fill in missing data from the ePod data log if possible
@@ -195,19 +198,40 @@ With Report.Sheets(1)
 
    If FileExists(sePodFilePath & sePodFileName) Then
       Set ePodReport = ExcelApp.Workbooks.Open(sePodFilePath & sePodFileName)
+      'Get the last row in the epod file
+      StartTime = Timer
+      iePodRows = ePodReport.Sheets(1).Range("A1").CurrentRegion.Rows.Count + 1
+      Debug.Print "ePod file has " & iePodRows & " rows"
+      If Not bBackground Then AddLog "  ePod has " & iePodRows & " rows"
+      EndTime = Timer
+      Debug.Print "Checking for last line in ePod file took " & Format(EndTime - StartTime, "00.00000") & " seconds"
+
+      'Redimension temporary array
+      'ReDim ePodData(1 To iePodRows, 1 To 12)
+      
+      'Read the data from excel into the temp array
+      StartTime = Timer
+      ePodData = ePodReport.Sheets(1).Range("A1:L" & iePodRows)
+      EndTime = Timer
+      Debug.Print "Copying epod data to array took " & Format(EndTime - StartTime, "00.00000") & " seconds"
+      
+      StartTime = Timer
       kStart = 4
       For j = 2 To 97
          sDateCheck = Format(Report.Sheets(1).Cells(j, 2).value, "h:mm:ss")
          'Data is missing, gather everything from the ePodFile for this timestamp
          'First, find the row with a close timestamp
-         If Not bBackground Then AddLog "   Searching for Missing Data in ePod File - " & sDateCheck
-         For k = kStart To 18000
+         
+         If Not bBackground Then AddLog " ", sReportDate, "Rig " & iRig, "Engine " & iEngine, sDateCheck
+         
+         
+         For k = kStart To iePodRows
             
-            If ePodReport.Sheets(1).Cells(k, 2).value <> "" Then
+            If ePodData(k, 2) <> "" Then
                'Insert a log update every 100 lines searched
-               If (k Mod 100) = 0 Then If Not bBackground Then AddLog "   Checking line " & k
+               If (k Mod 100) = 0 Then If Not bBackground Then AddLog " ", sReportDate, "Rig " & iRig, "Engine " & iEngine, sDateCheck, Str(Format((k / iePodRows) * 100, "00")) & "%"
                
-               If (Report.Sheets(1).Cells(j, 2).value - ePodReport.Sheets(1).Cells(kStart, 2).value) < (-15 / 1440) Then
+               If (Report.Sheets(1).Cells(j, 2).value - ePodData(kStart, 2)) < (-15 / 1440) Then
                  'ExcelApp.Visible = True
                  'ExcelApp.Visible = False
                  If Not bBackground Then AddLog "  ePod file doesn't start until after the missing record"
@@ -215,7 +239,7 @@ With Report.Sheets(1)
                End If
                
                'See if we are within 14 minutes of the requested time
-               If (ePodReport.Sheets(1).Cells(k, 2).value - Report.Sheets(1).Cells(j, 2).value >= 0) And (ePodReport.Sheets(1).Cells(k, 2).value - Report.Sheets(1).Cells(j, 2).value < (15 / 1440)) Then
+               If (ePodData(k, 2) - Report.Sheets(1).Cells(j, 2).value >= 0) And (ePodData(k, 2) - Report.Sheets(1).Cells(j, 2).value < (15 / 1440)) Then
                   'save this row to start again on for next missing record
                   kStart = k
                   
@@ -226,18 +250,18 @@ With Report.Sheets(1)
                   sTemp = ""
 
                   'Read values from ePod report row
-                  sePodPumpOutput = ePodReport.Sheets(1).Cells(k, 8).value
-                  sePodBoostPressure = ePodReport.Sheets(1).Cells(k, 9).value
-                  sePodExhTemp = ePodReport.Sheets(1).Cells(k, 12).value
+                  sePodPumpOutput = ePodData(k, 8)
+                  sePodBoostPressure = ePodData(k, 9)
+                  sePodExhTemp = ePodData(k, 12)
                   
                   'get the timestamp and format it
                   'Insert ePod file timestamp for debugging
-                  'sTemp = Format(ePodReport.Sheets(1).Cells(k, 2).value, "h:mm:ss")
+                  'sTemp = Format(ePodData(k, 2), "h:mm:ss")
                   'Report.Sheets(1).Cells(j, 14).value = sTemp
-                  'If Not bBackground Then addlog "  Found Missing Data in ePod File at line " & k
+                  'If Not bBackground Then AddLog "  Found Missing Data in ePod File at line " & k
             
                   'Insert ePod file device state for debugging
-                  sTemp = ePodReport.Sheets(1).Cells(k, 3).value
+                  sTemp = ePodData(k, 3)
                   Report.Sheets(1).Cells(j, 13).value = sTemp
                   
                   'Insert data into EPA Report
@@ -246,18 +270,19 @@ With Report.Sheets(1)
                   Report.Sheets(1).Cells(j, 8).value = sePodExhTemp
 
                   Exit For
-               ElseIf (ePodReport.Sheets(1).Cells(k, 2).value - Report.Sheets(1).Cells(j, 2).value) > (15 / 1440) Then
+               ElseIf (ePodData(k, 2) - Report.Sheets(1).Cells(j, 2).value) > (15 / 1440) Then
                   'Gap in Data?
                   If Not bBackground Then AddLog "  No data for time frame - " & sDateCheck
                   Debug.Print "No data for time frame - " & sDateCheck
                   Exit For
                End If
-            Else
-               'Blank line reached, see if next two are blank, then exit for loop
-               If ePodReport.Sheets(1).Cells(k + 1, 2).value = "" And ePodReport.Sheets(1).Cells(k + 2, 2).value = "" Then Exit For
+            
             End If
          Next k
       Next j
+      
+      EndTime = Timer
+      Debug.Print "Gathering epod data took " & Format(EndTime - StartTime, "00.00000") & " seconds"
       
       'close the epod file
       ePodReport.Close False
@@ -265,9 +290,10 @@ With Report.Sheets(1)
       If Not bBackground Then AddLog "  Unable to Find ePod file to pull from"
       Print #iLog, "  Unable to Find ePod file to pull from"
       .Cells(2, 12).value = "Unable to locate ePod file as data source"
-      PR_BuildClAirEPA = 1
+      PR_BuildClAirEPA_Test = 1
    End If
    
+   StartTime = Timer
    '**********************************************************************
    'Insert Run Status based on Boost
    '**********************************************************************
@@ -316,29 +342,40 @@ With Report.Sheets(1)
       End If
    Next i
   
+   EndTime = Timer
+   Debug.Print "Calculations took " & Format(EndTime - StartTime, "00.00000") & " seconds"
+   
+      
   '**********************************************************************
    'Save the file
    '**********************************************************************
    ExcelApp.DisplayAlerts = False
    Report.SaveAs sFilePath & sFileName, xlCSV
    ExcelApp.DisplayAlerts = True
-   If Not bBackground Then AddLog "File Saved to preserve corrections"
+   If Not bBackground Then AddLog "  File Saved to preserve corrections"
   
 End With
 
 Report.Close False
 ExcelApp.Quit
 
-If Not bBackground Then AddLog ""
-If Not bBackground Then AddLog "Completed File creation at " & Now()
-If Not bBackground Then AddLog "********************************************************************************" & vbCrLf
+
+
+
 
 Print #iLog, "Completed File creation at " & Now()
-Debug.Print "Completed File creation at " & Now()
 Close #iLog
 
-On Error Resume Next
+TotalEndTime = Timer
+Debug.Print "Report Generation took " & Format(TotalEndTime - TotalStartTime, "00.00000") & " seconds"
+If Not bBackground Then AddLog "  Report Generation took " & Format(TotalEndTime - TotalStartTime, "00.00000") & " seconds"
+If Not bBackground Then AddLog "Completed File creation at " & Now(), "", "", "", "", "", "", "", ""
+If Not bBackground Then AddLog "********************************************************************************" & vbCrLf
 
+Debug.Print "Completed File creation at " & Now()
+
+On Error Resume Next
+PR_BuildClAirEPA_Test = 0
 Exit Function
 
 ErrorHandler:
@@ -349,4 +386,3 @@ If Not bBackground Then AddLog ""
 Resume Next
 
 End Function
-
