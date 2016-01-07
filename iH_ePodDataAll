@@ -1,0 +1,149 @@
+Public Function iH_ePodDataAll(sDate As String, sTagMask As String, ByRef sResults() As String) As Integer
+Dim Conn As New ADODB.Connection
+Dim RecSet As New ADODB.Recordset
+Dim strConn As String
+Dim StartTime As Double
+Dim EndTime As Double
+Dim sSqlQry As String
+Dim iRecords As Integer
+Dim iRecords1 As Integer
+Dim iRecords2 As Integer
+Dim iRecords3 As Integer
+
+On Error GoTo ErrorHandler
+
+Debug.Print
+
+strConn = "Provider=ihOLEDB.iHistorian.1;Data Source=iHistorian;User Id=;Password="
+
+' open connection
+StartTime = Timer
+Conn.ConnectionString = strConn
+Conn.Open
+EndTime = Timer
+Debug.Print "Connect took " & EndTime - StartTime & " S"
+
+
+'***************************
+'Create the Boost Pressure Qry
+'sDate = "1/01/2016 00:00:00"
+sSql = "SELECT timestamp, value, quality FROM ihRawdata  " & _
+"WHERE ( tagname LIKE '" & sTagMask & "_Boost.F_CV' " & _
+"AND samplingmode=calculated " & _
+"AND CalculationMode=Average " & _
+"AND intervalmilliseconds=15m " & _
+"AND timestamp>='" & sDate & "' " & _
+"AND timestamp<='" & DateAdd("d", 1, sDate) & "' ) "
+
+'Debug.Print sSql
+StartTime = Timer
+RecSet.Open sSql, Conn
+EndTime = Timer
+Debug.Print "Qry 1 took " & EndTime - StartTime & " S"
+
+' print the output
+iRecords = 0
+ReDim sResults(97, 6)
+Do While Not RecSet.EOF
+   sResults(iRecords, 0) = RecSet.Fields(0)
+   sResults(iRecords, 1) = RecSet.Fields(1)
+   sResults(iRecords, 2) = RecSet.Fields(2)
+   RecSet.MoveNext
+   iRecords = iRecords + 1
+Loop
+iRecords1 = iRecords
+
+' print a count of rows
+Debug.Print iRecords1 & " Rows returned for Qry 1"
+' close the recordset
+RecSet.Close
+
+'***************************
+'Create the Pump Rate Qry
+'sDate = "1/01/2016 00:00:00"
+sSql = "SELECT timestamp, value, quality FROM ihRawdata  " & _
+"WHERE ( tagname LIKE '" & sTagMask & "_PumpOut.F_CV' " & _
+"AND samplingmode=calculated " & _
+"AND CalculationMode=Average " & _
+"AND intervalmilliseconds=15m " & _
+"AND timestamp>='" & sDate & "' " & _
+"AND timestamp<='" & DateAdd("d", 1, sDate) & "' ) "
+
+'Debug.Print sSql
+StartTime = Timer
+RecSet.Open sSql, Conn
+EndTime = Timer
+Debug.Print "Qry 2 took " & EndTime - StartTime & " S"
+
+' print the output
+iRecords = 0
+Do While Not RecSet.EOF
+   If sResults(iRecords, 0) = RecSet.Fields(0) Then
+      sResults(iRecords, 3) = RecSet.Fields(1)
+      sResults(iRecords, 4) = RecSet.Fields(2)
+   Else
+      Stop
+   End If
+   RecSet.MoveNext
+   iRecords = iRecords + 1
+Loop
+iRecords2 = iRecords
+
+' print a count of rows
+Debug.Print iRecords2 & " Rows returned for Qry 2"
+' close the recordset
+RecSet.Close
+
+
+'***************************
+'Create the Cat Temp Qry
+'sDate = "1/01/2016 00:00:00"
+sSql = "SELECT timestamp, value, quality FROM ihRawdata  " & _
+"WHERE ( tagname LIKE '" & sTagMask & "_CatInlet.F_CV' " & _
+"AND samplingmode=calculated " & _
+"AND CalculationMode=Average " & _
+"AND intervalmilliseconds=15m " & _
+"AND timestamp>='" & sDate & "' " & _
+"AND timestamp<='" & DateAdd("d", 1, sDate) & "' ) "
+
+'Debug.Print sSql
+StartTime = Timer
+RecSet.Open sSql, Conn
+EndTime = Timer
+Debug.Print "Qry 3 took " & EndTime - StartTime & " S"
+
+' print the output
+iRecords = 0
+Do While Not RecSet.EOF
+   If sResults(iRecords, 0) = RecSet.Fields(0) Then
+      sResults(iRecords, 5) = RecSet.Fields(1)
+      sResults(iRecords, 6) = RecSet.Fields(2)
+   Else
+      Stop
+   End If
+   RecSet.MoveNext
+   iRecords = iRecords + 1
+Loop
+iRecords3 = iRecords
+
+' print a count of rows
+Debug.Print iRecords2 & " Rows returned for Qry 3"
+' close the recordset
+RecSet.Close
+Set RecSet = Nothing
+
+
+' close the connection
+Conn.Close
+If iRecords1 = 97 And iRecords2 = 97 And iRecords3 = 97 Then
+   iH_ePodDataAll = 0
+End If
+   
+
+Exit Function
+
+ErrorHandler:
+Debug.Print Err.Description
+iH_ePodDataAll = 99
+'Resume Next
+End Function
